@@ -1,0 +1,925 @@
+# SALES DATA ANALYSIS SYSTEM
+# Data Analysis Essentials - Cornerstone Project
+# Google Colab Implementation
+# ============================================================
+
+# ============================
+# 1. IMPORT REQUIRED LIBRARIES
+# ============================
+
+import io
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from google.colab import files
+from IPython.display import display
+
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.ensemble import RandomForestRegressor
+
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score
+)
+
+warnings.filterwarnings("ignore")
+
+print("=" * 65)
+print("             ZOMATO DATA ANALYSIS SYSTEM")
+print("             Google Colab Implementation")
+print("=" * 65)
+
+
+# ============================
+# 2. UPLOAD CSV OR EXCEL FILE
+# ============================
+
+print("\nUpload your Zomato dataset (.csv or .xlsx).")
+
+uploaded = files.upload()
+
+if not uploaded:
+    raise ValueError("Please upload a dataset.")
+
+filename = next(iter(uploaded))
+file_bytes = uploaded[filename]
+
+# Automatic CSV encoding detection
+if filename.lower().endswith(".csv"):
+
+    encodings = ["utf-8", "cp1252", "latin1"]
+
+    for encoding in encodings:
+        try:
+            df = pd.read_csv(
+                io.BytesIO(file_bytes),
+                encoding=encoding
+            )
+            print("CSV Encoding detected:", encoding)
+            break
+
+        except UnicodeDecodeError:
+            continue
+
+    else:
+        raise ValueError("Unable to decode CSV file.")
+
+elif filename.lower().endswith((".xlsx", ".xls")):
+
+    df = pd.read_excel(io.BytesIO(file_bytes))
+
+else:
+    raise ValueError("Upload a CSV or Excel file.")
+
+print("\nDataset uploaded successfully!")
+print("File:", filename)
+print("Dataset Shape:", df.shape)
+
+# Clean column names
+df.columns = (
+    df.columns.astype(str)
+    .str.strip()
+    .str.replace("\n", " ", regex=False)
+)
+
+display(df.head())
+
+
+# ============================
+# 3. DATASET INFORMATION
+# ============================
+
+print("\n" + "=" * 65)
+print("1. DATASET INFORMATION")
+print("=" * 65)
+
+print("\nNumber of Rows:", df.shape[0])
+print("Number of Columns:", df.shape[1])
+
+print("\nColumn Names:")
+print(df.columns.tolist())
+
+print("\nDataset Information:")
+df.info()
+
+print("\nStatistical Summary:")
+display(df.describe(include="all").T)
+
+
+# ============================
+# 4. MISSING VALUE ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("2. MISSING VALUE ANALYSIS")
+print("=" * 65)
+
+missing_report = pd.DataFrame({
+    "Missing_Count": df.isnull().sum(),
+    "Missing_Percentage": (
+        df.isnull().mean() * 100
+    ).round(2)
+})
+
+display(missing_report)
+
+print(
+    "\nTotal Missing Values:",
+    df.isnull().sum().sum()
+)
+
+
+# ============================
+# 5. DUPLICATE ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("3. DUPLICATE RECORD ANALYSIS")
+print("=" * 65)
+
+duplicate_count = df.duplicated().sum()
+
+print("Duplicate Records:", duplicate_count)
+
+df = df.drop_duplicates().copy()
+
+print("Records After Removing Duplicates:", len(df))
+
+
+# ============================
+# 6. DATA CLEANING
+# ============================
+
+print("\n" + "=" * 65)
+print("4. DATA CLEANING")
+print("=" * 65)
+
+# Remove unnecessary spaces from text columns
+
+for col in df.select_dtypes(include=["object"]).columns:
+
+    df[col] = df[col].apply(
+        lambda x: x.strip() if isinstance(x, str) else x
+    )
+
+# Replace common invalid values
+
+df.replace(
+    ["", " ", "NA", "N/A", "null", "None"],
+    np.nan,
+    inplace=True
+)
+
+# Identify numeric columns
+
+for col in df.columns:
+
+    if df[col].dtype == "object":
+
+        converted = pd.to_numeric(
+            df[col].astype(str).str.replace(",", "", regex=False),
+            errors="coerce"
+        )
+
+        if converted.notna().mean() > 0.80:
+            df[col] = converted
+
+# Fill missing numerical values with median
+
+for col in df.select_dtypes(include=np.number).columns:
+
+    df[col] = df[col].fillna(df[col].median())
+
+# Fill missing categorical values with mode
+
+for col in df.select_dtypes(include="object").columns:
+
+    if df[col].isnull().any():
+
+        mode_value = df[col].mode()
+
+        if not mode_value.empty:
+            df[col] = df[col].fillna(mode_value.iloc[0])
+
+print("Data Cleaning Completed!")
+
+print("\nMissing Values After Cleaning:")
+display(df.isnull().sum().to_frame("Missing Values"))
+
+
+# ============================
+# 7. AUTOMATIC COLUMN DETECTION
+# ============================
+
+print("\n" + "=" * 65)
+print("5. COLUMN IDENTIFICATION")
+print("=" * 65)
+
+def find_column(possible_names):
+
+    lookup = {
+        str(col).strip().lower(): col
+        for col in df.columns
+    }
+
+    for name in possible_names:
+
+        if name.lower() in lookup:
+            return lookup[name.lower()]
+
+    return None
+
+
+restaurant_col = find_column([
+    "Restaurant Name",
+    "Restaurant",
+    "Name"
+])
+
+city_col = find_column([
+    "City",
+    "Location"
+])
+
+cuisine_col = find_column([
+    "Cuisines",
+    "Cuisine",
+    "Food Type"
+])
+
+rating_col = find_column([
+    "Aggregate rating",
+    "Aggregate Rating",
+    "Rating",
+    "Rate"
+])
+
+votes_col = find_column([
+    "Votes",
+    "Vote"
+])
+
+cost_col = find_column([
+    "Average Cost for two",
+    "Average Cost For Two",
+    "Average Cost",
+    "Cost"
+])
+
+online_col = find_column([
+    "Has Online delivery",
+    "Has Online Delivery",
+    "Online Delivery"
+])
+
+table_col = find_column([
+    "Has Table booking",
+    "Has Table Booking",
+    "Table Booking"
+])
+
+print("Restaurant Column:", restaurant_col)
+print("City Column:", city_col)
+print("Cuisine Column:", cuisine_col)
+print("Rating Column:", rating_col)
+print("Votes Column:", votes_col)
+print("Cost Column:", cost_col)
+print("Online Delivery Column:", online_col)
+print("Table Booking Column:", table_col)
+
+
+# ============================
+# 8. RESTAURANT ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("6. RESTAURANT ANALYSIS")
+print("=" * 65)
+
+if restaurant_col:
+
+    print("Total Restaurants:", df[restaurant_col].nunique())
+
+    print("\nTop 10 Restaurants:")
+    display(
+        df[restaurant_col]
+        .value_counts()
+        .head(10)
+        .to_frame("Records")
+    )
+
+else:
+    print("Restaurant name column not available.")
+
+
+# ============================
+# 9. CITY-WISE ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("7. CITY-WISE RESTAURANT ANALYSIS")
+print("=" * 65)
+
+city_analysis = pd.DataFrame()
+
+if city_col:
+
+    city_analysis = (
+        df.groupby(city_col)
+        .size()
+        .sort_values(ascending=False)
+        .to_frame("Restaurant_Count")
+    )
+
+    print("\nTop 10 Cities:")
+    display(city_analysis.head(10))
+
+    plt.figure(figsize=(10, 5))
+
+    city_analysis.head(10)["Restaurant_Count"].plot(
+        kind="bar"
+    )
+
+    plt.title("Top 10 Cities by Restaurant Count")
+    plt.xlabel("City")
+    plt.ylabel("Number of Restaurants")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("City column not available.")
+
+
+# ============================
+# 10. CUISINE ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("8. CUISINE ANALYSIS")
+print("=" * 65)
+
+cuisine_analysis = pd.DataFrame()
+
+if cuisine_col:
+
+    cuisine_series = (
+        df[cuisine_col]
+        .dropna()
+        .astype(str)
+        .str.split(",")
+        .explode()
+        .str.strip()
+    )
+
+    cuisine_analysis = (
+        cuisine_series.value_counts()
+        .head(15)
+        .to_frame("Restaurant_Count")
+    )
+
+    print("\nTop 15 Cuisines:")
+    display(cuisine_analysis)
+
+    plt.figure(figsize=(11, 6))
+
+    cuisine_analysis["Restaurant_Count"].plot(
+        kind="bar"
+    )
+
+    plt.title("Top 15 Popular Cuisines")
+    plt.xlabel("Cuisine")
+    plt.ylabel("Number of Restaurants")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("Cuisine column not available.")
+
+
+# ============================
+# 11. RESTAURANT RATING ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("9. RESTAURANT RATING ANALYSIS")
+print("=" * 65)
+
+if rating_col:
+
+    df[rating_col] = pd.to_numeric(
+        df[rating_col],
+        errors="coerce"
+    )
+
+    print("Average Rating:", round(df[rating_col].mean(), 2))
+    print("Maximum Rating:", df[rating_col].max())
+    print("Minimum Rating:", df[rating_col].min())
+
+    print("\nRating Statistics:")
+    display(df[rating_col].describe())
+
+    plt.figure(figsize=(8, 5))
+
+    df[rating_col].dropna().hist(bins=20)
+
+    plt.title("Restaurant Rating Distribution")
+    plt.xlabel("Rating")
+    plt.ylabel("Number of Restaurants")
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("Rating column not available.")
+
+
+# ============================
+# 12. COST ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("10. RESTAURANT COST ANALYSIS")
+print("=" * 65)
+
+if cost_col:
+
+    df[cost_col] = pd.to_numeric(
+        df[cost_col],
+        errors="coerce"
+    )
+
+    print("Average Cost:", round(df[cost_col].mean(), 2))
+    print("Maximum Cost:", df[cost_col].max())
+    print("Minimum Cost:", df[cost_col].min())
+
+    plt.figure(figsize=(8, 5))
+
+    df[cost_col].dropna().hist(bins=20)
+
+    plt.title("Restaurant Average Cost Distribution")
+    plt.xlabel("Average Cost")
+    plt.ylabel("Number of Restaurants")
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("Cost column not available.")
+
+
+# ============================
+# 13. VOTES ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("11. RESTAURANT VOTES ANALYSIS")
+print("=" * 65)
+
+if votes_col:
+
+    df[votes_col] = pd.to_numeric(
+        df[votes_col],
+        errors="coerce"
+    )
+
+    print("Total Votes:", df[votes_col].sum())
+    print("Average Votes:", round(df[votes_col].mean(), 2))
+
+    print("\nTop 10 Restaurants by Votes:")
+
+    if restaurant_col:
+
+        display(
+            df.nlargest(10, votes_col)[
+                [restaurant_col, votes_col]
+            ]
+        )
+
+    plt.figure(figsize=(8, 5))
+
+    df[votes_col].dropna().hist(bins=20)
+
+    plt.title("Restaurant Votes Distribution")
+    plt.xlabel("Number of Votes")
+    plt.ylabel("Number of Restaurants")
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("Votes column not available.")
+
+
+# ============================
+# 14. ONLINE DELIVERY ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("12. ONLINE DELIVERY ANALYSIS")
+print("=" * 65)
+
+if online_col:
+
+    delivery_analysis = (
+        df[online_col]
+        .value_counts()
+        .to_frame("Restaurant_Count")
+    )
+
+    display(delivery_analysis)
+
+    plt.figure(figsize=(7, 5))
+
+    delivery_analysis["Restaurant_Count"].plot(
+        kind="bar"
+    )
+
+    plt.title("Online Delivery Availability")
+    plt.xlabel("Online Delivery")
+    plt.ylabel("Number of Restaurants")
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("Online delivery column not available.")
+
+
+# ============================
+# 15. TABLE BOOKING ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("13. TABLE BOOKING ANALYSIS")
+print("=" * 65)
+
+if table_col:
+
+    booking_analysis = (
+        df[table_col]
+        .value_counts()
+        .to_frame("Restaurant_Count")
+    )
+
+    display(booking_analysis)
+
+    plt.figure(figsize=(7, 5))
+
+    booking_analysis["Restaurant_Count"].plot(
+        kind="bar"
+    )
+
+    plt.title("Table Booking Availability")
+    plt.xlabel("Table Booking")
+    plt.ylabel("Number of Restaurants")
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("Table booking column not available.")
+
+
+# ============================
+# 16. CITY-WISE RATING ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("14. CITY-WISE RATING ANALYSIS")
+print("=" * 65)
+
+city_rating = pd.DataFrame()
+
+if city_col and rating_col:
+
+    city_rating = (
+        df.groupby(city_col)[rating_col]
+        .mean()
+        .sort_values(ascending=False)
+        .to_frame("Average_Rating")
+    )
+
+    print("\nTop 10 Cities by Average Rating:")
+
+    display(city_rating.head(10).round(2))
+
+    plt.figure(figsize=(10, 5))
+
+    city_rating.head(10)["Average_Rating"].plot(
+        kind="bar"
+    )
+
+    plt.title("Top 10 Cities by Average Restaurant Rating")
+    plt.xlabel("City")
+    plt.ylabel("Average Rating")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("City or rating column unavailable.")
+
+
+# ============================
+# 17. MACHINE LEARNING
+#     RESTAURANT RATING PREDICTION
+# ============================
+
+print("\n" + "=" * 65)
+print("15. MACHINE LEARNING MODEL")
+print("=" * 65)
+
+model = None
+ml_results = {}
+
+if rating_col:
+
+    ml_df = df.copy()
+
+    ml_df[rating_col] = pd.to_numeric(
+        ml_df[rating_col],
+        errors="coerce"
+    )
+
+    ml_df = ml_df.dropna(subset=[rating_col])
+
+    # Select useful predictors
+    candidate_features = [
+        city_col,
+        cuisine_col,
+        cost_col,
+        votes_col,
+        online_col,
+        table_col
+    ]
+
+    feature_columns = [
+        col for col in candidate_features
+        if col is not None and col != rating_col
+    ]
+
+    # Remove duplicate column names
+    feature_columns = list(dict.fromkeys(feature_columns))
+
+    # Remove features with no useful variation
+    feature_columns = [
+        col for col in feature_columns
+        if ml_df[col].nunique(dropna=True) > 1
+    ]
+
+    if len(feature_columns) > 0 and len(ml_df) >= 20:
+
+        X = ml_df[feature_columns].copy()
+        y = ml_df[rating_col].copy()
+
+        # Detect numeric and categorical columns
+        numeric_features = X.select_dtypes(
+            include=np.number
+        ).columns.tolist()
+
+        categorical_features = [
+            col for col in X.columns
+            if col not in numeric_features
+        ]
+
+        numeric_transformer = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler())
+        ])
+
+        categorical_transformer = Pipeline(steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("encoder", OneHotEncoder(handle_unknown="ignore"))
+        ])
+
+        transformers = []
+
+        if numeric_features:
+            transformers.append(
+                ("numeric", numeric_transformer, numeric_features)
+            )
+
+        if categorical_features:
+            transformers.append(
+                ("categorical", categorical_transformer,
+                 categorical_features)
+            )
+
+        preprocessor = ColumnTransformer(
+            transformers=transformers
+        )
+
+        model = Pipeline(steps=[
+            ("preprocessor", preprocessor),
+            ("regressor", RandomForestRegressor(
+                n_estimators=100,
+                random_state=42,
+                n_jobs=-1
+            ))
+        ])
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X,
+            y,
+            test_size=0.20,
+            random_state=42
+        )
+
+        model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_test)
+
+        mae = mean_absolute_error(y_test, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+        r2 = r2_score(y_test, y_pred)
+
+        ml_results = {
+            "MAE": mae,
+            "RMSE": rmse,
+            "R2 Score": r2
+        }
+
+        print("\nModel Training Completed!")
+
+        print("Training Records:", len(X_train))
+        print("Testing Records:", len(X_test))
+
+        print("\nModel Evaluation:")
+
+        print("Mean Absolute Error:", round(mae, 3))
+        print("Root Mean Squared Error:", round(rmse, 3))
+        print("R2 Score:", round(r2, 3))
+
+        # Actual vs Predicted visualization
+
+        plt.figure(figsize=(7, 5))
+
+        plt.scatter(y_test, y_pred)
+
+        plt.xlabel("Actual Rating")
+        plt.ylabel("Predicted Rating")
+
+        plt.title("Actual vs Predicted Restaurant Ratings")
+
+        plt.tight_layout()
+        plt.show()
+
+    else:
+
+        print(
+            "Machine Learning skipped: "
+            "Not enough valid records or useful predictor columns."
+        )
+
+else:
+
+    print("Rating column not available. Prediction skipped.")
+
+
+# ============================
+# 18. CORRELATION ANALYSIS
+# ============================
+
+print("\n" + "=" * 65)
+print("16. CORRELATION ANALYSIS")
+print("=" * 65)
+
+numeric_df = df.select_dtypes(include=np.number)
+
+if numeric_df.shape[1] >= 2:
+
+    correlation = numeric_df.corr()
+
+    display(correlation.round(2))
+
+    plt.figure(figsize=(9, 6))
+
+    plt.imshow(correlation, aspect="auto")
+
+    plt.colorbar()
+
+    plt.xticks(
+        range(len(correlation.columns)),
+        correlation.columns,
+        rotation=45,
+        ha="right"
+    )
+
+    plt.yticks(
+        range(len(correlation.columns)),
+        correlation.columns
+    )
+
+    plt.title("Feature Correlation Analysis")
+
+    plt.tight_layout()
+    plt.show()
+
+else:
+
+    print("Not enough numerical columns for correlation analysis.")
+
+
+# ============================
+# 19. EXPORT CLEANED DATASET
+# ============================
+
+print("\n" + "=" * 65)
+print("17. EXPORT CLEANED DATASET")
+print("=" * 65)
+
+cleaned_filename = "Cleaned_Zomato_Data.xlsx"
+
+df.to_excel(
+    cleaned_filename,
+    index=False
+)
+
+print("Cleaned Dataset Created:", cleaned_filename)
+
+
+# ============================
+# 20. CREATE EXCEL REPORT
+# ============================
+
+print("\n" + "=" * 65)
+print("18. CREATE ANALYSIS REPORT")
+print("=" * 65)
+
+report_filename = "Zomato_Data_Analysis_Report.xlsx"
+
+with pd.ExcelWriter(
+    report_filename,
+    engine="openpyxl"
+) as writer:
+
+    df.to_excel(
+        writer,
+        sheet_name="Cleaned_Data",
+        index=False
+    )
+
+    missing_report.to_excel(
+        writer,
+        sheet_name="Missing_Values"
+    )
+
+    if not city_analysis.empty:
+
+        city_analysis.to_excel(
+            writer,
+            sheet_name="City_Analysis"
+        )
+
+    if not cuisine_analysis.empty:
+
+        cuisine_analysis.to_excel(
+            writer,
+            sheet_name="Cuisine_Analysis"
+        )
+
+    if not city_rating.empty:
+
+        city_rating.to_excel(
+            writer,
+            sheet_name="City_Rating"
+        )
+
+    if ml_results:
+
+        pd.DataFrame(
+            list(ml_results.items()),
+            columns=["Metric", "Value"]
+        ).to_excel(
+            writer,
+            sheet_name="Model_Evaluation",
+            index=False
+        )
+
+print("Analysis Report Created:", report_filename)
+
+
+# ============================
+# 21. DOWNLOAD RESULTS
+# ============================
+
+print("\n" + "=" * 65)
+print("19. ANALYSIS COMPLETED")
+print("=" * 65)
+
+print("Zomato Data Analysis Completed Successfully!")
+
+print("\nFiles Available for Download:")
+
+print("1. Cleaned_Zomato_Data.xlsx")
+print("2. Zomato_Data_Analysis_Report.xlsx")
+
+files.download(cleaned_filename)
+
+files.download(report_filename)
+
+print("\nThank You for Using Zomato Data Analysis System!")
